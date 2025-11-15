@@ -2,7 +2,10 @@ module cargo-depgraph
 
 go 1.25.4
 
-require github.com/spf13/cobra v1.10.1
+require (
+	github.com/BurntSushi/toml v1.5.0
+	github.com/spf13/cobra v1.10.1
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
