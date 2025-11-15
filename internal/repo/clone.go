@@ -14,6 +14,6 @@ func CloneRepositoryByTag(url string, tag string, repoName string) error {
 	if err != nil {
 		return fmt.Errorf("failed to clone %s: %v", url, err)
 	}
-	
+
 	return nil
 }

@@ -1,2 +1,27 @@
-# cargo-graph-analyzer
-Dependency graph analyzer for Rust (Cargo) packages
+## cargo-graph-analyzer
+Анализатор графа зависимостей для пакетов Rust (Cargo).
+
+### Сборка
+
+```bash
+go build ./...
+```
+
+### Использование
+
+```bash
+depgraph get [name] [url-or-path] [mode] [version] [max-depth]
+```
+
+- **name**: имя пакета.
+- **url-or-path**:
+  - в режиме `repo`: URL git‑репозитория (`https://...git`);
+  - в режиме `test`: путь к файлу с тестовым графом.
+- **mode**:
+  - `repo` — анализ репозитория по `Cargo.toml`;
+  - `test` — анализ тестового графа из файла.
+- **version**: версия / тег / ветка (для `repo`; в `test` просто обязательный аргумент).
+- **max-depth**: максимальная глубина анализа.
+
+Команда выводит дерево зависимостей, повторяющиеся узлы и обнаруженные циклы.
+
