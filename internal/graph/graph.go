@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -24,13 +25,13 @@ func AnalyzeAndRender(root string, adjacency map[string][]string, maxDepth int) 
 	var lines []string
 
 	type frame struct {
-		node   string
-		depth  int
-		prefix string
+		node     string
+		depth    int
+		prefix   string
 		children []string
 		index    int
-		isLast bool
-		exit bool
+		isLast   bool
+		exit     bool
 	}
 
 	onPath := make(map[string]bool)
@@ -190,4 +191,87 @@ func itoa(n int) string {
 		return "-" + string(digits)
 	}
 	return string(digits)
+}
+
+func ComputeLoadOrder(root string, adjacency map[string][]string) ([]string, error) {
+	reachable := collectReachable(root, adjacency)
+	if len(reachable) == 0 {
+		return nil, fmt.Errorf("root %s is not present in the graph", root)
+	}
+
+	indegree := make(map[string]int, len(reachable))
+	for node := range reachable {
+		indegree[node] = 0
+	}
+
+	for parent := range reachable {
+		for _, child := range adjacency[parent] {
+			if _, ok := indegree[child]; !ok {
+				indegree[child] = 0
+			}
+			indegree[child]++
+		}
+	}
+
+	queue := make([]string, 0)
+	for node, deg := range indegree {
+		if deg == 0 {
+			queue = append(queue, node)
+		}
+	}
+	sort.Strings(queue)
+
+	order := make([]string, 0, len(indegree))
+
+	for len(queue) > 0 {
+		node := queue[0]
+		queue = queue[1:]
+		order = append(order, node)
+
+		children := adjacency[node]
+		if len(children) > 1 {
+			tmp := append([]string(nil), children...)
+			sort.Strings(tmp)
+			children = tmp
+		}
+
+		for _, child := range children {
+			if _, ok := indegree[child]; !ok {
+				continue
+			}
+			indegree[child]--
+			if indegree[child] == 0 {
+				queue = append(queue, child)
+				sort.Strings(queue)
+			}
+		}
+	}
+
+	if len(order) != len(indegree) {
+		return order, fmt.Errorf("graph contains cycles, load order is undefined")
+	}
+
+	return order, nil
+}
+
+func collectReachable(root string, adjacency map[string][]string) map[string]struct{} {
+	visited := make(map[string]struct{})
+	stack := []string{root}
+
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if _, ok := visited[node]; ok {
+			continue
+		}
+		visited[node] = struct{}{}
+
+		children := adjacency[node]
+		for _, child := range children {
+			stack = append(stack, child)
+		}
+	}
+
+	return visited
 }

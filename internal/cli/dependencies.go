@@ -127,6 +127,7 @@ func runWithRepoMode(req *GetRequest) (string, error) {
 			sb.WriteString(" - " + cs + "\n")
 		}
 	}
+	appendLoadOrder(&sb, rootLabel, adj)
 	return sb.String(), nil
 }
 
@@ -157,6 +158,7 @@ func runWithTestMode(req *GetRequest) (string, error) {
 			sb.WriteString(" - " + cs + "\n")
 		}
 	}
+	appendLoadOrder(&sb, req.Name, adj)
 	return sb.String(), nil
 }
 
@@ -200,4 +202,16 @@ func parseTestGraphFile(path string) (map[string][]string, error) {
 		adj[parent] = append(adj[parent], children...)
 	}
 	return adj, nil
+}
+
+func appendLoadOrder(sb *strings.Builder, root string, adjacency map[string][]string) {
+	order, err := graph.ComputeLoadOrder(root, adjacency)
+	if err != nil {
+		sb.WriteString(fmt.Sprintf("\nLoad order unavailable: %v\n", err))
+		return
+	}
+	sb.WriteString("\nLoad order:\n")
+	for i, node := range order {
+		sb.WriteString(fmt.Sprintf(" %d. %s\n", i+1, node))
+	}
 }
