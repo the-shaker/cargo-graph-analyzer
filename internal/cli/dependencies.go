@@ -6,24 +6,23 @@ import (
 	"strconv"
 	"strings"
 
-	"cargo-depgraph/internal/cargo"
+	"cargo-depgraph/internal/crates"
 	"cargo-depgraph/internal/graph"
-	"cargo-depgraph/internal/repo"
 
 	"github.com/spf13/cobra"
 )
 
 type GetRequest struct {
-	Name    string
-	Url     string
-	Mode    string
-	Version string
-	Depth   string
+	Name     string
+	Mode     string
+	Version  string
+	TestFile string
+	Depth    int
 }
 
 var getCommand = &cobra.Command{
 	Use:   "get",
-	Short: "Usage: get [pkg name] [repo url or test file path] [mode (repo/test)] [pkg version] [max depth]",
+	Short: "Usage: get [pkg name] [mode repo|test] [version or test file] [max depth]",
 	Args:  checkArgs,
 	RunE:  runGetCommand,
 }
@@ -33,38 +32,34 @@ func init() {
 }
 
 func checkArgs(cmd *cobra.Command, args []string) error {
-	if len(args) != 5 {
-		return fmt.Errorf("command must have 5 arguments")
+	if len(args) != 4 {
+		return fmt.Errorf("command must have 4 arguments")
 	}
-
 	if args[0] == "" {
 		return fmt.Errorf("package name cannot be empty")
 	}
 
-	switch args[2] {
+	mode := args[1]
+	switch mode {
 	case "repo":
-		if !(checkUrl(args[1])) {
-			return fmt.Errorf("invalid repo url")
+		if args[2] == "" {
+			return fmt.Errorf("version cannot be empty")
 		}
 	case "test":
-		_, err := os.Stat(args[1])
-		if err != nil {
+		if args[2] == "" {
+			return fmt.Errorf("test file path cannot be empty")
+		}
+		if _, err := os.Stat(args[2]); err != nil {
 			if os.IsNotExist(err) {
-				return fmt.Errorf("file does not exist in this path")
-			} else {
-				return fmt.Errorf("error with checking file path")
+				return fmt.Errorf("test file does not exist at this path")
 			}
+			return fmt.Errorf("failed to check test file: %w", err)
 		}
 	default:
 		return fmt.Errorf("invalid mode. Must be repo or test")
 	}
 
-	if args[3] == "" {
-		return fmt.Errorf("version cannot be empty")
-	}
-
-	_, err := strconv.Atoi(args[4])
-	if err != nil {
+	if _, err := strconv.Atoi(args[3]); err != nil {
 		return fmt.Errorf("depth must be an integer")
 	}
 
@@ -72,12 +67,19 @@ func checkArgs(cmd *cobra.Command, args []string) error {
 }
 
 func runGetCommand(cmd *cobra.Command, args []string) error {
+	depth, _ := strconv.Atoi(args[3])
 	req := GetRequest{
-		Name:    args[0],
-		Url:     args[1],
-		Mode:    args[2],
-		Version: args[3],
-		Depth:   args[4],
+		Name:  args[0],
+		Mode:  args[1],
+		Depth: depth,
+	}
+	switch req.Mode {
+	case "repo":
+		req.Version = args[2]
+	case "test":
+		req.TestFile = args[2]
+	default:
+		return fmt.Errorf("unsupported mode: %s", req.Mode)
 	}
 
 	var out string
@@ -100,30 +102,16 @@ func runGetCommand(cmd *cobra.Command, args []string) error {
 }
 
 func runWithRepoMode(req *GetRequest) (string, error) {
-	if err := repo.CreateTempDataDirectory(); err != nil {
-		return "", err
-	}
-
-	defer repo.RemoveTempDataDirectory()
-
-	tempRepoPath, err := repo.CreateTempDataDirectoryForRepo(req.Name)
+	adj, err := crates.BuildAdjacencyFromRegistry(req.Name, req.Version, req.Depth)
 	if err != nil {
 		return "", err
 	}
 
-	if err := repo.CloneRepositoryByTag(req.Url, req.Version, req.Name); err != nil {
-		return "", err
-	}
-
-	maxDepth, _ := strconv.Atoi(req.Depth)
-	adj, err := cargo.BuildAdjacencyFromTomlRecursively(req.Name, tempRepoPath, maxDepth)
-	if err != nil {
-		return "", err
-	}
-	result := graph.AnalyzeAndRender(req.Name, adj, maxDepth)
+	rootLabel := fmt.Sprintf("%s@%s", req.Name, req.Version)
+	result := graph.AnalyzeAndRender(rootLabel, adj, req.Depth)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Dependency graph for %s (max-depth %d):\n\n", req.Name, maxDepth))
+	sb.WriteString(fmt.Sprintf("Dependency graph for %s (max-depth %d):\n\n", rootLabel, req.Depth))
 	sb.WriteString(result.Tree)
 	sb.WriteString("\n\nRepeated nodes:\n")
 	if len(result.RepeatedNodes) == 0 {
@@ -142,26 +130,18 @@ func runWithRepoMode(req *GetRequest) (string, error) {
 	return sb.String(), nil
 }
 
-func checkUrl(url string) bool {
-	return (strings.HasPrefix(url, "https://") ||
-		strings.HasPrefix(url, "http://") ||
-		strings.HasSuffix(url, ".git") ||
-		strings.Contains(url, "git@"))
-}
-
 func runWithTestMode(req *GetRequest) (string, error) {
-	adj, err := parseTestGraphFile(req.Url)
+	adj, err := parseTestGraphFile(req.TestFile)
 	if err != nil {
 		return "", err
 	}
 	if _, ok := adj[req.Name]; !ok {
 		adj[req.Name] = []string{}
 	}
-	maxDepth, _ := strconv.Atoi(req.Depth)
-	result := graph.AnalyzeAndRender(req.Name, adj, maxDepth)
+	result := graph.AnalyzeAndRender(req.Name, adj, req.Depth)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Dependency graph for %s (max-depth %d):\n\n", req.Name, maxDepth))
+	sb.WriteString(fmt.Sprintf("Dependency graph for %s (max-depth %d):\n\n", req.Name, req.Depth))
 	sb.WriteString(result.Tree)
 	sb.WriteString("\n\nRepeated nodes:\n")
 	if len(result.RepeatedNodes) == 0 {
@@ -198,7 +178,6 @@ func parseTestGraphFile(path string) (map[string][]string, error) {
 		line = strings.ReplaceAll(line, "->", ":")
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
-			// tolerate standalone node
 			name := strings.TrimSpace(line)
 			if name != "" {
 				if _, ok := adj[name]; !ok {
